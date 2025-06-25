@@ -1,0 +1,180 @@
+---
+title: "Tablero de datos de pobreza extrema en Costa Rica, America Central y America Latina"
+format:
+  dashboard:
+    orientation: columns
+    theme: united
+    nav-buttons: 
+     - reddit
+     - facebook
+     - linkedin
+     - twitter
+---
+
+```{r}
+#| label: carga-bibliotecas
+
+library(tidyverse)
+library(sf)
+library(plotly)
+library(DT)
+library(readxl)
+library(tmap)
+library(dplyr)
+library(stringr)
+library(ggthemes)
+```
+
+```{r}
+#| label: cargar-datos
+
+# Cargar datos de paises
+
+americacentral <- st_read("america-central.gpkg", quiet = TRUE)
+
+# Cargar datos del Paises con sus valores de pobreza extrema
+
+datos <- read_csv("datos.csv")
+
+# Filtrar datos a America Central y el año mas reciente de indice de pobreza extrema
+
+centroamerica_pobreza <- datos |> 
+  filter(Country == "Belize" |
+         Country == "Guatemala" |
+         Country == "El Salvador" |
+         Country == "Honduras" |
+         Country == "Nicaragua" |
+         Country == "Costa Rica" |
+         Country == "Panama")
+
+centroamerica <- centroamerica_pobreza |> 
+  group_by(Country) |> 
+  filter(Year == max(Year, na.rm = TRUE)) |> 
+  ungroup()
+
+americacentral <- americacentral |> 
+  mutate(pais = str_to_lower(NAME))
+
+centroamerica <- centroamerica |> 
+  mutate(pais = str_to_lower(Country))
+
+# Hacer el join de los datos espaciales con los datos de pobreza extrema
+
+union_datos <- americacentral |> 
+  left_join(centroamerica, by = "pais")
+
+# Filtrar solo Costa Rica (para el primer grafico)
+costa_rica <- datos[466:502, ]
+
+# Cambiar nombre de las columnas al espanol
+colnames(costa_rica) <- c("Pais", "Año", "Pobreza_extrema")
+
+# Filtrar solo Costa Rica, Mexico, Brasil y Colombia en 2022 (para el segundo grafico)
+datos_cr <- datos[
+  (datos$Country == "Costa Rica" | datos$Country == "Mexico" | datos$Country == "Brazil" | datos$Country == "Colombia") & datos$Year == "2022", ]
+
+# Cambiar nombre de las columnas al espanol
+colnames(datos_cr) <- c("Pais", "Año", "Pobreza_extrema")
+
+```
+
+## Column {width="50%"}
+
+### Row
+
+```{r}
+#| label: mapa
+
+# Modo interactivo
+tmap_mode("view")
+
+# Crear mapa
+mapa <- tm_shape(union_datos) +
+  tm_basemap(c("Esri.WorldGrayCanvas", "OpenStreetMap", "Esri.WorldImagery")) +
+  tm_fill(
+    col = "Share below $2.15 a day",
+    palette = "Blues",
+    style = "quantile",
+    title = "% Pobreza Extrema",
+    id = "pais",
+    popup.vars = c(
+      "País" = "pais",
+      "% Pobreza Extrema" = "Share below $2.15 a day"
+    )
+  ) +
+  tm_borders(col = "black", lwd = 0.5) +
+  tm_scalebar(position = c("left", "bottom")) +
+  tm_view(set.view = c(lon = -84.2, lat = 9.6, zoom = 7))
+
+# Mostrar el mapa
+mapa
+
+```
+
+### Row
+
+```{r}
+#| label: tabla
+
+datatable(
+  centroamerica,
+  options = list(
+    pageLength = 10,
+    scrollX = TRUE,
+    autoWidth = TRUE
+  ),
+  rownames = FALSE,
+  caption = "Datos más recientes de pobreza extrema en América Central"
+)
+
+```
+
+
+## Column {width="50%"}
+
+### Row
+
+```{r}
+#| label: grafico-barras
+
+grafico_barras <-
+  costa_rica |>
+ggplot(aes(x = factor(Año, levels = sort(unique(Año))), y = Pobreza_extrema)) +
+  geom_col(fill = "steelblue") +
+  ggtitle("Población de Costa Rica en pobreza extrema, 1981-2023") +
+  xlab("Año") +
+  ylab(" % Pobreza extrema") +
+  theme_economist() +
+   theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  ) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1))
+
+# Gráfico de barras plotly
+ggplotly(grafico_barras, tooltip = "text") |> 
+  config(locale = 'es')
+```
+
+### Row
+
+```{r}
+#| label: grafico-barras-2
+
+grafico_barras2 <-
+  datos_cr |>
+  ggplot(aes(x = Pobreza_extrema, y = Pais)) +
+  geom_col(fill = "orange") +
+  ggtitle("Pobreza extrema (<2,15 USD/día) en 2022") +
+  xlab("Porcentaje de población") +
+  ylab("País") +
+  theme_minimal() +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 10)
+  )
+
+ggplotly(grafico_barras2, tooltip = "text") |> 
+  config(locale = 'es')
+```
+
